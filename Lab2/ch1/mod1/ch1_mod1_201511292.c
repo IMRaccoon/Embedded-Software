@@ -1,7 +1,7 @@
 #include <linux/init.h>
 #include <linux/module.h>
 
-int my_id = 0;
+static int my_id = 0;
 int get_my_id(void) {
     return my_id;
 }
