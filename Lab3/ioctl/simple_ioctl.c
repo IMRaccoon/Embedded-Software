@@ -8,7 +8,7 @@ MODULE_LICENSE("GPL");
 
 #define DEV_NAME "simple_ioctl_dev"
 
-#define IOCTL_START_NUM 0x80
+#define IOCTL_START_NUM 1
 #define IOCTL_NUM1 IOCTL_START_NUM + 1
 #define IOCTL_NUM2 IOCTL_START_NUM + 2
 

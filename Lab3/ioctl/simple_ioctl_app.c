@@ -2,9 +2,8 @@
 #include <sys/fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
-#include "simple_ioctl.h"
 
-#define IOCTL_START_NUM 0x80
+#define IOCTL_START_NUM 1
 #define IOCTL_NUM1 IOCTL_START_NUM + 1
 #define IOCTL_NUM2 IOCTL_START_NUM + 2
 
