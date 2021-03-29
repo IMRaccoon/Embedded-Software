@@ -16,9 +16,9 @@ MODULE_LICENSE("GPL");
 
 #define CH_IOCTL_MAGIC 'z'
 #define GET_IOCTL _IOR(CH_IOCTL_MAGIC, IOCTL_NUM_GET, long)
-#define SET_IOCTL _IOWR(CH_IOCTL_MAGIC, IOCTL_NUM_SET, long)
-#define ADD_IOCTL _IOWR(CH_IOCTL_MAGIC, IOCTL_NUM_ADD, long)
-#define MUL_IOCTL _IOWR(CH_IOCTL_MAGIC, IOCTL_NUM_MUL, long)
+#define SET_IOCTL _IOW(CH_IOCTL_MAGIC, IOCTL_NUM_SET, long)
+#define ADD_IOCTL _IOW(CH_IOCTL_MAGIC, IOCTL_NUM_ADD, long)
+#define MUL_IOCTL _IOW(CH_IOCTL_MAGIC, IOCTL_NUM_MUL, long)
 
 static long result = 0;
 
@@ -44,15 +44,15 @@ static long ch2_dev_ioctl(struct file *file, unsigned int cmd, unsigned long arg
     case SET_IOCTL:
         printk("ch2_dev: set %ld to %ld\n", result, arg);
         result = arg;
-        return result;
+        break;
     case ADD_IOCTL:
         printk("ch2_dev: add %ld and %ld\n", result, arg);
         result += arg;
-        return result;
+        break;
     case MUL_IOCTL:
         printk("ch2_dev: mul %ld and %ld\n", result, arg);
         result *= arg;
-        return result;
+        break;
     default:
         return -1;
     }
