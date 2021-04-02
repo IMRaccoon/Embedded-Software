@@ -1,0 +1,33 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/usr/include",
+                "/usr/include/x86_64-linux-gnu/",
+                "/usr/local/include",
+                "/usr/src/linux-headers-4.15.0-29/include",
+                "/usr/src/linux-headers-4.15.0-29-generic/include",
+                "/usr/src/linux-headers-4.15.0-29/arch/x86/include",
+                "/usr/lib/gcc/x86_64-linux-gnu/7.5.0/include"
+            ],
+            "defines": [
+                "__GNUC__",
+                "__KERNEL__"
+            ],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c99",
+            "cppStandard": "c++14",
+            "browse": {
+                "path": [
+                    "${workspaceFolder}",
+                    "/usr/src/linux-headers-4.15.0-29/include"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            },
+            "intelliSenseMode": "clang-x64"
+        }
+    ],
+    "version": 4
+}
