@@ -1,4 +1,4 @@
-obj-m := simple_spin.o
+obj-m := simple_block_1.o
 
 KERNELDIR := /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)
@@ -11,4 +11,3 @@ default:
 clean:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) clean
 	rm $(obj-m:.o=_reader) , $(obj-m:.o=_writer)
-	
