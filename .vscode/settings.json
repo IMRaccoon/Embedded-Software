@@ -1,9 +1,0 @@
-{
-    "files.associations": {
-        "init.h": "c",
-        "cdev.h": "c",
-        "kobject.h": "c",
-        "fcntl.h": "c",
-        "simple_block_1.h": "c"
-    }
-}
