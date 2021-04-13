@@ -43,20 +43,31 @@ struct ku_msg_snd_data
 struct ku_msg_lib
 {
     long type;
-    char *str;
+    char str[128];
 };
 
 int fd = 0;
 
+int checkQueueID(int msqid)
+{
+    if (msqid < 0 || msqid > 9)
+    {
+        return 1;
+    }
+    return 0;
+}
+
 // Message Queue Open
 int ku_msgget(int key, int msgflg)
 {
-    if (!checkQueueID(key) || !((msgflg & KU_IPC_CREATE) || (msgflg & KU_IPC_EXCL)))
+    if (checkQueueID(key) || !((msgflg & KU_IPC_CREATE) || (msgflg & KU_IPC_EXCL)))
     {
+        printf("KU LIB MSGGET FIRST ERROR\n");
         return -1;
     }
     else if (!!fd)
     {
+        printf("KU LIB MSGGET SECOND ERROR\n");
         return -1;
     }
 
@@ -75,8 +86,9 @@ int ku_msgget(int key, int msgflg)
 
 int ku_msgclose(int msqid)
 {
-    if (!checkQueueID(msqid) || !fd)
+    if (checkQueueID(msqid) || !fd)
     {
+        printf("KU LIB MSGCLOSE FIRST ERROR\n");
         return -1;
     }
 
@@ -86,12 +98,14 @@ int ku_msgclose(int msqid)
 // Message Send
 int ku_msgsnd(int msqid, void *msgp, int msgsz, int msgflg)
 {
-    if (!checkQueueID(msqid) || !((msgflg & KU_IPC_NOWAIT) || msgflg == 0) || !fd)
+    if (checkQueueID(msqid) || !((msgflg & KU_IPC_NOWAIT) || msgflg == 0) || !fd)
     {
+        printf("KU LIB MSGSND FIRST ERROR\n");
         return -1;
     }
     else if (msgsz < 0 || msgsz > 128)
     {
+        printf("KU LIB MSGSND SECOND ERROR\n");
         return -1;
     }
 
@@ -122,26 +136,24 @@ int ku_msgsnd(int msqid, void *msgp, int msgsz, int msgflg)
 // Message Receive
 int ku_msgrcv(int msqid, void *msgq, int msgsz, long msgtyp, int msgflg)
 {
-    if (!checkQueueID(msqid) || !((msgflg & KU_IPC_NOWAIT) || (msgflg & KU_MSG_NOERROR)) || !fd)
+    if (checkQueueID(msqid) || !((msgflg & KU_IPC_NOWAIT) || (msgflg & KU_MSG_NOERROR)) || !fd)
     {
+        printf("KU LIB MSGRCV FIRST ERROR\n");
         return -1;
     }
     else if (msgsz < 0 || msgsz > 128)
     {
+        printf("KU LIB MSGRCV SECOND ERROR\n");
         return -1;
     }
 
-    struct ku_msg_lib tmp =
-        {
-            .str = (char *)msgq,
-            .type = msgtyp,
-        };
+    struct ku_msg_lib *tmp = (struct ku_msg_lib *)msgq;
 
     struct ku_msg_data data =
         {
             .size = msgsz,
-            .type = tmp.type,
-            .str = tmp.str};
+            .type = tmp->type,
+            .str = tmp->str};
 
     struct ku_msg_snd_data send_data =
         {
@@ -161,13 +173,4 @@ int ku_msgrcv(int msqid, void *msgq, int msgsz, long msgtyp, int msgflg)
         return ioctl(fd, MESSAGE_RECEIVE_WAIT_NOERROR, &send_data);
     }
     return ioctl(fd, MESSAGE_RECEIVE_WAIT_ERROR, &send_data);
-}
-
-int checkQueueID(int msqid)
-{
-    if (msqid < 0 && msqid > 9)
-    {
-        return -1;
-    }
-    return 0;
 }
