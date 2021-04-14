@@ -10,7 +10,7 @@
 #include <linux/uaccess.h>
 #include "ku_ipc.h"
 
-#define DEV_NAME "challenge1"
+#define DEV_NAME "ku_ipc"
 #define MAX_QUEUE_LENGTH 10
 #define MAX_CONCURRENT_PROCESS 3
 
@@ -301,7 +301,7 @@ int message_receive(struct ku_msg_rcv_data *arg, int is_wait, int is_noerror)
     else
     {
         size = pos->data->size;
-        ret = copy_to_user(arg->data->str, pos->data->str, pos->data->size);
+        ret = copy_to_user(arg->data->str, pos->data->str, size - 1);
     }
 
     spin_lock(&ku_ipc_lock);

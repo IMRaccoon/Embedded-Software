@@ -79,7 +79,7 @@ int ku_msgget(int key, int msgflg)
         return -1;
     }
 
-    fd = open("/dev/challenge1", O_RDWR);
+    fd = open("/dev/ku_ipc", O_RDWR);
     if ((msgflg & KU_IPC_CREATE) != 0)
     {
         ret = ioctl(fd, MESSAGE_GET_CREATE, key);

@@ -21,8 +21,6 @@ int main(void)
     int type;
     int size;
 
-    ;
-
     printf("Choose queue ID : ");
     scanf("%d", &qid);
 
@@ -47,5 +45,6 @@ int main(void)
     {
         printf("type: %ld, age: %d name:%s\n", receive_test.type, receive_test.data.age, receive_test.data.name);
     }
+
     ku_msgclose(qid);
 }

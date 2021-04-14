@@ -1,6 +1,6 @@
 #!/bin/sh
 
-MODULE="challenge1"
+MODULE="ku_ipc"
 MAJOR=$(awk "\$2==\"$MODULE\" {print \$1}" /proc/devices)
 
 mknod /dev/$MODULE c $MAJOR 0
