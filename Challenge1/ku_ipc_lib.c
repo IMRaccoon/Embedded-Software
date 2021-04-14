@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 #include <sys/fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/ipc.h>
@@ -27,23 +29,29 @@
 #define MESSAGE_RECEIVE_WAIT_NOERROR _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM8, unsigned long)
 #define MESSAGE_RECEIVE_NOWAIT_NOERROR _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM9, unsigned long)
 
-struct ku_msg_data
+struct ku_msg_snd_buf
 {
     long type;
     int size;
-    char *str;
+    char str[128];
+};
+
+struct ku_msg_rcv_buf
+{
+    long type;
+    char str[128];
 };
 
 struct ku_msg_snd_data
 {
     int qid;
-    struct ku_msg_data *data;
+    struct ku_msg_snd_buf *data;
 };
 
-struct ku_msg_lib
+struct ku_msg_rcv_data
 {
-    long type;
-    char str[128];
+    int qid;
+    struct ku_msg_rcv_buf *data;
 };
 
 int fd = 0;
@@ -109,20 +117,22 @@ int ku_msgsnd(int msqid, void *msgp, int msgsz, int msgflg)
         return -1;
     }
 
-    struct ku_msg_lib *tmp = (struct ku_msg_lib *)msgp;
-
-    struct ku_msg_data data =
+    struct ku_msg_rcv_buf *tmp = msgp;
+    struct ku_msg_snd_buf data =
         {
             .size = msgsz,
             .type = tmp->type,
-            .str = tmp->str};
+        };
+
+    memcpy(data.str, tmp->str, msgsz);
 
     struct ku_msg_snd_data send_data =
         {
             .qid = msqid,
             .data = &data};
 
-    if (msgflg & KU_IPC_NOWAIT != 0)
+    printf("send data %d %ld %s\n", send_data.data->size, send_data.data->type, send_data.data->str);
+    if ((msgflg & KU_IPC_NOWAIT) != 0)
     {
         return ioctl(fd, MESSAGE_SEND_NOWAIT, &send_data);
     }
@@ -134,7 +144,7 @@ int ku_msgsnd(int msqid, void *msgp, int msgsz, int msgflg)
 }
 
 // Message Receive
-int ku_msgrcv(int msqid, void *msgq, int msgsz, long msgtyp, int msgflg)
+int ku_msgrcv(int msqid, void *msgp, int msgsz, long msgtyp, int msgflg)
 {
     if (checkQueueID(msqid) || !((msgflg & KU_IPC_NOWAIT) || (msgflg & KU_MSG_NOERROR)) || !fd)
     {
@@ -147,28 +157,23 @@ int ku_msgrcv(int msqid, void *msgq, int msgsz, long msgtyp, int msgflg)
         return -1;
     }
 
-    struct ku_msg_lib *tmp = (struct ku_msg_lib *)msgq;
+    struct ku_msg_rcv_buf *tmp = msgp;
+    tmp->type = msgtyp;
 
-    struct ku_msg_data data =
-        {
-            .size = msgsz,
-            .type = tmp->type,
-            .str = tmp->str};
-
-    struct ku_msg_snd_data send_data =
+    struct ku_msg_rcv_data send_data =
         {
             .qid = msqid,
-            .data = &data};
+            .data = tmp};
 
-    if (msgflg & KU_IPC_NOWAIT != 0 && msgflg & KU_MSG_NOERROR != 0)
+    if ((msgflg & KU_IPC_NOWAIT) != 0 && (msgflg & KU_MSG_NOERROR) != 0)
     {
         return ioctl(fd, MESSAGE_RECEIVE_NOWAIT_NOERROR, &send_data);
     }
-    else if (msgflg & KU_IPC_NOWAIT != 0)
+    else if ((msgflg & KU_IPC_NOWAIT) != 0)
     {
         return ioctl(fd, MESSAGE_RECEIVE_NOWAIT_ERROR, &send_data);
     }
-    else if (msgflg & KU_MSG_NOERROR != 0)
+    else if ((msgflg & KU_MSG_NOERROR) != 0)
     {
         return ioctl(fd, MESSAGE_RECEIVE_WAIT_NOERROR, &send_data);
     }

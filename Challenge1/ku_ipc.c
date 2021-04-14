@@ -42,7 +42,7 @@
 struct ku_msg_list
 {
     struct list_head list_head;
-    struct ku_msg_data *data;
+    struct ku_msg_snd_buf *data;
 };
 
 struct ku_msg_queue
@@ -53,7 +53,7 @@ struct ku_msg_queue
     int pid_index;
 };
 
-struct ku_msg_data
+struct ku_msg_snd_buf
 {
     long type;
     int size;
@@ -63,7 +63,19 @@ struct ku_msg_data
 struct ku_msg_snd_data
 {
     int qid;
-    struct ku_msg_data *data;
+    struct ku_msg_snd_buf *data;
+};
+
+struct ku_msg_rcv_buf
+{
+    long type;
+    char str[128];
+};
+
+struct ku_msg_rcv_data
+{
+    int qid;
+    struct ku_msg_rcv_buf *data;
 };
 
 static dev_t dev_num;
@@ -149,45 +161,44 @@ int message_send(struct ku_msg_snd_data *arg, int is_wait)
 {
     int ret = 0;
     struct ku_msg_list *add_list;
-    printk("is wait? %d\n", is_wait);
-
     cur_queue = &msg_queue_list[arg->qid];
-    // Queue 사이즈 체크
-    if (cur_queue->queue_index >= KUIPC_MAXMSG || (ku_ipc_global_size + arg->data->size) >= KUIPC_MAXVOL)
-    {
-        // Wait Event Check
-        if (is_wait == TRUE)
-        {
-            ret = wait_event_interruptible(ku_ipc_wq, cur_queue->queue_index < KUIPC_MAXMSG && (ku_ipc_global_size + arg->data->size) >= KUIPC_MAXVOL);
-            if (ret < 0)
-            {
-                return -1;
-            }
-        }
-        else if (is_wait == FALSE)
-        {
-            printk("here A?");
-            return -1;
-        }
-    }
+
+    // // Queue 사이즈 체크
+    // if (cur_queue->queue_index >= KUIPC_MAXMSG || (ku_ipc_global_size + arg->data->size) >= KUIPC_MAXVOL)
+    // {
+    //     // printk("ku_ipc: send limit, wait : %d", is_wait);
+    //     // Wait Event Check
+    //     if (is_wait == TRUE)
+    //     {
+    //         ret = wait_event_interruptible(ku_ipc_wq, cur_queue->queue_index < KUIPC_MAXMSG && (ku_ipc_global_size + arg->data->size) >= KUIPC_MAXVOL);
+    //         if (ret < 0)
+    //         {
+    //             return -1;
+    //         }
+    //     }
+    //     else if (is_wait == FALSE)
+    //     {
+    //         return -1;
+    //     }
+    // }
 
     add_list = (struct ku_msg_list *)kmalloc(sizeof(struct ku_msg_list), GFP_KERNEL);
-    add_list->data = (struct ku_msg_data *)vmalloc(sizeof(struct ku_msg_data));
-
+    add_list->data = (struct ku_msg_snd_buf *)vmalloc(sizeof(struct ku_msg_snd_buf));
     // Copy From User
-    add_list->data->type = arg->data->type;
     add_list->data->size = arg->data->size;
+    add_list->data->type = arg->data->type;
     ret = copy_from_user(add_list->data->str, arg->data->str, arg->data->size);
-
     // If Copy Error, Return -1
     if (ret != 0)
     {
+        printk("ku_ipc: here B?\n");
         vfree(add_list->data->str);
         vfree(add_list->data);
         kfree(add_list);
-        printk("here B?");
         return -1;
     }
+
+    printk("ku_ipc: send str:%s\n", add_list->data->str);
     list_add_tail(&add_list->list_head, &cur_queue->ku_queue.list_head);
 
     // Copy Success Queue Index Add
@@ -199,39 +210,39 @@ int message_send(struct ku_msg_snd_data *arg, int is_wait)
     return ret;
 }
 
-int find_current_list(struct ku_msg_list *pos, long type)
+struct ku_msg_list *find_current_list(long type)
 {
-    struct ku_msg_list *tmp = NULL;
+    struct ku_msg_list *tmp;
     list_for_each_entry(tmp, &cur_queue->ku_queue.list_head, list_head)
     {
+
         if (type > 0 && tmp->data->type == type)
         {
-            pos = tmp;
+            return tmp;
         }
         else if (type < 0 && tmp->data->type < -type)
         {
-            pos = tmp;
+            return tmp;
         }
     }
-    if (pos == NULL)
-    {
-        return FALSE;
-    }
-    return TRUE;
+
+    return NULL;
 }
 
-int message_receive(struct ku_msg_snd_data *arg, int is_wait, int is_noerror)
+int message_receive(struct ku_msg_rcv_data *arg, int is_wait, int is_noerror)
 {
     int ret = 0;
     int size;
     struct ku_msg_list *pos = NULL;
     cur_queue = &msg_queue_list[arg->qid];
 
-    // 맨앞부터 가져온다
     if (arg->data->type == 0)
     {
+        // 맨앞부터 가져온다
+        printk("ku_ipc: receive type 0\n");
         pos = list_first_entry_or_null(&cur_queue->ku_queue.list_head, struct ku_msg_list, list_head);
         // 만약 맨처음 값이 없다면
+
         if (!pos)
         {
             if (is_wait == FALSE)
@@ -247,13 +258,15 @@ int message_receive(struct ku_msg_snd_data *arg, int is_wait, int is_noerror)
             pos = list_first_entry_or_null(&cur_queue->ku_queue.list_head, struct ku_msg_list, list_head);
         }
     }
-    // 골라 가져온다
     else
     {
+        // 골라 가져온다
+        printk("ku_ipc: receive type n\n");
         // 기다려야 한다면
         if (is_wait == TRUE)
         {
-            ret = wait_event_interruptible(ku_ipc_wq, find_current_list(pos, arg->data->type) == TRUE);
+            printk("ku_ipc: receive type n wait\n");
+            ret = wait_event_interruptible(ku_ipc_wq, find_current_list(arg->data->type) == NULL);
             if (ret < 0)
             {
                 return -1;
@@ -262,30 +275,36 @@ int message_receive(struct ku_msg_snd_data *arg, int is_wait, int is_noerror)
         // 기다리지 않는다면
         else
         {
-            if (!find_current_list(pos, arg->data->type))
+            pos = find_current_list(arg->data->type);
+            printk("ku_ipc: receive type n no wait\n");
+            if (!pos)
             {
+                printk("ku_ipc: Empty\n");
                 return -1;
             }
+            printk("ku_ipc: pos data type:%ld, str:%s\n", pos->data->type, pos->data->str);
         }
     }
+
     size = pos->data->size;
-    if (is_noerror == TRUE && arg->data->size < size)
+    if (is_noerror == TRUE && pos->data->size < size)
     {
         return -1;
     }
     else if (is_noerror == TRUE)
     {
-        ret = copy_to_user(arg->data->str, pos->data->str, arg->data->size);
+        ret = copy_to_user(arg->data->str, pos->data->str, pos->data->size);
     }
     else
     {
         ret = copy_to_user(arg->data->str, pos->data->str, size);
     }
-
+    printk("ku_ipc: receive pos str: %s size: %d\n", pos->data->str, size);
+    printk("ku_ipc: receive str: %s\n", arg->data->str);
     list_del(&pos->list_head);
-    vfree(pos->data->str);
-    vfree(pos->data);
-    kfree(pos);
+
+    // vfree(pos->data);
+    // kfree(pos);
     return size;
 }
 
@@ -304,13 +323,13 @@ static long ku_ipc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
     case MESSAGE_SEND_NOWAIT:
         return message_send((struct ku_msg_snd_data *)arg, FALSE);
     case MESSAGE_RECEIVE_WAIT_ERROR:
-        return message_receive((struct ku_msg_snd_data *)arg, TRUE, FALSE);
+        return message_receive((struct ku_msg_rcv_data *)arg, TRUE, FALSE);
     case MESSAGE_RECEIVE_NOWAIT_ERROR:
-        return message_receive((struct ku_msg_snd_data *)arg, FALSE, FALSE);
+        return message_receive((struct ku_msg_rcv_data *)arg, FALSE, FALSE);
     case MESSAGE_RECEIVE_WAIT_NOERROR:
-        return message_receive((struct ku_msg_snd_data *)arg, TRUE, TRUE);
+        return message_receive((struct ku_msg_rcv_data *)arg, TRUE, TRUE);
     case MESSAGE_RECEIVE_NOWAIT_NOERROR:
-        return message_receive((struct ku_msg_snd_data *)arg, FALSE, TRUE);
+        return message_receive((struct ku_msg_rcv_data *)arg, FALSE, TRUE);
     default:
         return -1;
     }
@@ -328,8 +347,8 @@ static int __init ku_ipc_init(void)
 {
     int ret, i;
 
-    kern_msg = (struct ku_msg_data *)vmalloc(sizeof(struct ku_msg_data));
-    memset(kern_msg, '\0', sizeof(struct ku_msg_data));
+    kern_msg = (struct ku_msg_data *)vmalloc(sizeof(struct ku_msg_snd_buf));
+    memset(kern_msg, '\0', sizeof(struct ku_msg_snd_buf));
 
     for (i = 0; i < MAX_QUEUE_LENGTH; i++)
     {
