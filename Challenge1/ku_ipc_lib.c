@@ -51,6 +51,7 @@ struct ku_msg_snd_data
 struct ku_msg_rcv_data
 {
     int qid;
+    int size;
     struct ku_msg_rcv_buf *data;
 };
 
@@ -68,35 +69,44 @@ int checkQueueID(int msqid)
 // Message Queue Open
 int ku_msgget(int key, int msgflg)
 {
+    int ret;
     if (checkQueueID(key) || !((msgflg & KU_IPC_CREATE) || (msgflg & KU_IPC_EXCL)))
     {
-        printf("KU LIB MSGGET FIRST ERROR\n");
         return -1;
     }
     else if (!!fd)
     {
-        printf("KU LIB MSGGET SECOND ERROR\n");
         return -1;
     }
 
     fd = open("/dev/challenge1", O_RDWR);
+    if ((msgflg & KU_IPC_CREATE) != 0)
+    {
+        ret = ioctl(fd, MESSAGE_GET_CREATE, key);
+        printf("open %d\n", ret);
+    }
+    else if ((msgflg & KU_IPC_EXCL) != 0)
+    {
+        ret = ioctl(fd, MESSAGE_GET_EXCL, key);
+    }
+    else
+    {
+        fd = 0;
+        return -1;
+    }
 
-    if (msgflg & KU_IPC_CREATE != 0)
+    if (ret == -1)
     {
-        return ioctl(fd, MESSAGE_GET_CREATE, key);
+        fd = 0;
+        return ret;
     }
-    else if (msgflg & KU_IPC_EXCL != 0)
-    {
-        return ioctl(fd, MESSAGE_GET_EXCL, key);
-    }
-    return -1;
+    return ret;
 }
 
 int ku_msgclose(int msqid)
 {
     if (checkQueueID(msqid) || !fd)
     {
-        printf("KU LIB MSGCLOSE FIRST ERROR\n");
         return -1;
     }
 
@@ -108,12 +118,10 @@ int ku_msgsnd(int msqid, void *msgp, int msgsz, int msgflg)
 {
     if (checkQueueID(msqid) || !((msgflg & KU_IPC_NOWAIT) || msgflg == 0) || !fd)
     {
-        printf("KU LIB MSGSND FIRST ERROR\n");
         return -1;
     }
     else if (msgsz < 0 || msgsz > 128)
     {
-        printf("KU LIB MSGSND SECOND ERROR\n");
         return -1;
     }
 
@@ -131,7 +139,6 @@ int ku_msgsnd(int msqid, void *msgp, int msgsz, int msgflg)
             .qid = msqid,
             .data = &data};
 
-    printf("send data %d %ld %s\n", send_data.data->size, send_data.data->type, send_data.data->str);
     if ((msgflg & KU_IPC_NOWAIT) != 0)
     {
         return ioctl(fd, MESSAGE_SEND_NOWAIT, &send_data);
@@ -148,12 +155,10 @@ int ku_msgrcv(int msqid, void *msgp, int msgsz, long msgtyp, int msgflg)
 {
     if (checkQueueID(msqid) || !((msgflg & KU_IPC_NOWAIT) || (msgflg & KU_MSG_NOERROR)) || !fd)
     {
-        printf("KU LIB MSGRCV FIRST ERROR\n");
         return -1;
     }
     else if (msgsz < 0 || msgsz > 128)
     {
-        printf("KU LIB MSGRCV SECOND ERROR\n");
         return -1;
     }
 
@@ -163,6 +168,7 @@ int ku_msgrcv(int msqid, void *msgp, int msgsz, long msgtyp, int msgflg)
     struct ku_msg_rcv_data send_data =
         {
             .qid = msqid,
+            .size = msgsz,
             .data = tmp};
 
     if ((msgflg & KU_IPC_NOWAIT) != 0 && (msgflg & KU_MSG_NOERROR) != 0)

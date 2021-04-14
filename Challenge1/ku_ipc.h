@@ -1,5 +1,5 @@
 // 하나의 Queue에 최대 들어갈 수 있는 Message 개수
-#define KUIPC_MAXMSG 10
+#define KUIPC_MAXMSG 3
 // 하나의 Queue에 존재하는 Message들의 사이즈 총합 제한
 #define KUIPC_MAXVOL 2560
 

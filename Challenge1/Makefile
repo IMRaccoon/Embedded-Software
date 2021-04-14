@@ -10,4 +10,5 @@ clean:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) clean
 
 test:
-	gcc -o ku_ipc_app ku_ipc_app.c
+	gcc -o sender ku_ipc_sender.c
+	gcc -o reader ku_ipc_reader.c
