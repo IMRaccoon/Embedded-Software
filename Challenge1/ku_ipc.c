@@ -39,21 +39,6 @@
 #define TRUE 1
 #define FALSE 0
 
-struct ku_msg_list
-{
-    struct list_head list_head;
-    struct ku_msg_snd_buf *data;
-};
-
-struct ku_msg_queue
-{
-    struct ku_msg_list ku_queue;
-    pid_t using_pid[MAX_CONCURRENT_PROCESS];
-    int queue_count;
-    int queue_vol;
-    int pid_index;
-};
-
 struct ku_msg_snd_buf
 {
     long type;
@@ -64,7 +49,6 @@ struct ku_msg_snd_buf
 struct ku_msg_snd_data
 {
     int qid;
-    int size;
     struct ku_msg_snd_buf *data;
 };
 
@@ -79,6 +63,21 @@ struct ku_msg_rcv_data
     int qid;
     int size;
     struct ku_msg_rcv_buf *data;
+};
+
+struct ku_msg_list
+{
+    struct list_head list_head;
+    struct ku_msg_snd_buf *data;
+};
+
+struct ku_msg_queue
+{
+    struct ku_msg_list ku_queue;
+    pid_t using_pid[MAX_CONCURRENT_PROCESS];
+    int queue_count;
+    int queue_vol;
+    int pid_index;
 };
 
 static dev_t dev_num;
@@ -108,7 +107,6 @@ int message_get_create(int qid)
 {
     struct ku_msg_queue *cur_queue = &msg_queue_list[qid];
 
-    printk("ku_ipc: current pid %d\n", cur_queue->pid_index);
     if (cur_queue->pid_index == MAX_CONCURRENT_PROCESS)
     {
         return -1;
@@ -171,10 +169,10 @@ int message_send(struct ku_msg_snd_data *arg, int is_wait)
     {
         if (is_wait == TRUE)
         {
-            printk("ku_ipc: send wait count: %d, vol: %d\n", cur_queue->queue_count, cur_queue->queue_vol);
-            ret = wait_event_interruptible_exclusive(ku_ipc_snd_wq[arg->qid], (cur_queue->queue_count <= KUIPC_MAXMSG) && ((cur_queue->queue_vol + arg->data->size) < KUIPC_MAXVOL));
+            ret = wait_event_interruptible(ku_ipc_snd_wq[arg->qid], (cur_queue->queue_count <= KUIPC_MAXMSG) && ((cur_queue->queue_vol + arg->data->size) < KUIPC_MAXVOL));
             if (ret < 0)
             {
+                printk("ku_ipc: send interrupt pid: %d\n", current->pid);
                 message_close(arg->qid);
                 return -1;
             }
@@ -197,6 +195,7 @@ int message_send(struct ku_msg_snd_data *arg, int is_wait)
     ret = copy_from_user(add_list->data->str, arg->data->str, arg->data->size);
     if (ret != 0)
     {
+        printk("ku_ipc: send copy error\n");
         spin_lock(&ku_ipc_lock);
         cur_queue->queue_vol -= arg->data->size;
         cur_queue->queue_count--;
@@ -250,10 +249,10 @@ int message_receive(struct ku_msg_rcv_data *arg, int is_wait, int is_noerror)
             {
                 return -1;
             }
-            printk("ku_ipc: receive wait count: %d, vol: %d\n", cur_queue->queue_count, cur_queue->queue_vol);
             ret = wait_event_interruptible(ku_ipc_rcv_wq[arg->qid], list_empty(&cur_queue->ku_queue.list_head) != 1);
             if (ret < 0)
             {
+                printk("ku_ipc: receive interrupt pid: %d\n", current->pid);
                 message_close(arg->qid);
                 return -1;
             }
@@ -262,11 +261,12 @@ int message_receive(struct ku_msg_rcv_data *arg, int is_wait, int is_noerror)
     }
     else
     {
-        if ((pos = find_current_list(cur_queue, arg->data->type)) != NULL && is_wait == TRUE)
+        if ((pos = find_current_list(cur_queue, arg->data->type)) == NULL && is_wait == TRUE)
         {
             ret = wait_event_interruptible(ku_ipc_rcv_wq[arg->qid], (pos = find_current_list(cur_queue, arg->data->type)) != NULL);
             if (ret < 0)
             {
+                printk("ku_ipc: receive interrupt pid: %d\n", current->pid);
                 message_close(arg->qid);
                 return -1;
             }
@@ -292,7 +292,13 @@ int message_receive(struct ku_msg_rcv_data *arg, int is_wait, int is_noerror)
     else
     {
         size = pos->data->size;
-        ret = copy_to_user(arg->data->str, pos->data->str, size - 1);
+        ret = copy_to_user(arg->data->str, pos->data->str, size + 1);
+    }
+
+    if (ret != 0)
+    {
+        printk("ku_ipc: receive copy error\n");
+        return -1;
     }
 
     spin_lock(&ku_ipc_lock);
@@ -366,14 +372,12 @@ static int __init ku_ipc_init(void)
 
     if (ret < 0)
     {
-        printk("KU IPC: Init Failure");
+        printk("ku_ipc: init failed");
         return -1;
     }
-    else
-    {
-        printk("KU IPC: Init Success\n");
-        return 0;
-    }
+
+    printk("ku_ipc: init");
+    return 0;
 }
 
 static void __exit ku_ipc_exit(void)
@@ -383,7 +387,6 @@ static void __exit ku_ipc_exit(void)
     struct list_head *q = 0;
     struct ku_msg_list *tmp = 0;
 
-    printk("KU IPC: Exit\n");
     cdev_del(cd_cdev);
     unregister_chrdev_region(dev_num, 1);
 
@@ -392,11 +395,11 @@ static void __exit ku_ipc_exit(void)
         list_for_each_safe(pos, q, &msg_queue_list[i].ku_queue.list_head)
         {
             tmp = list_entry(pos, struct ku_msg_list, list_head);
-            printk("ku_ipc: remove %d %ld %s\n", tmp->data->size, tmp->data->type, tmp->data->str);
             vfree(tmp->data);
             kfree(tmp);
         }
     }
+    printk("ku_ipc: exit");
 }
 
 module_init(ku_ipc_init);

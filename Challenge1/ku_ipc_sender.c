@@ -11,7 +11,7 @@ struct real_data
 struct ku_msg_lib
 {
     long type;
-    struct real_data data;
+    char a[128];
 };
 
 int main(void)
@@ -20,7 +20,6 @@ int main(void)
     int ret;
     int type;
 
-    int age;
     char *name = malloc(sizeof(char) * 128);
 
     printf("Choose queue ID : ");
@@ -28,9 +27,6 @@ int main(void)
 
     printf("Choose type : ");
     scanf("%d", &type);
-
-    printf("Input Age: ");
-    scanf("%d", &age);
 
     printf("Input name: ");
     scanf("%s", name);
@@ -44,11 +40,11 @@ int main(void)
     }
     struct ku_msg_lib send_test = {
         .type = type,
-        .data = {age}};
+    };
 
-    strcpy(send_test.data.name, name);
+    strcpy(send_test.a, name);
 
-    int send_result = ku_msgsnd(qid, &send_test, sizeof(send_test.data), 0);
+    int send_result = ku_msgsnd(qid, &send_test, strlen(send_test.a), 0);
     printf("Send Result : %d\n", send_result);
 
     ku_msgclose(qid);

@@ -83,7 +83,6 @@ int ku_msgget(int key, int msgflg)
     if ((msgflg & KU_IPC_CREATE) != 0)
     {
         ret = ioctl(fd, MESSAGE_GET_CREATE, key);
-        printf("open %d\n", ret);
     }
     else if ((msgflg & KU_IPC_EXCL) != 0)
     {
@@ -153,7 +152,7 @@ int ku_msgsnd(int msqid, void *msgp, int msgsz, int msgflg)
 // Message Receive
 int ku_msgrcv(int msqid, void *msgp, int msgsz, long msgtyp, int msgflg)
 {
-    if (check_queue_id(msqid) || !((msgflg & KU_IPC_NOWAIT) || (msgflg & KU_MSG_NOERROR)) || !fd)
+    if (check_queue_id(msqid) || !fd)
     {
         return -1;
     }

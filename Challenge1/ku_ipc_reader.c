@@ -11,7 +11,7 @@ struct real_data
 struct ku_msg_lib
 {
     long type;
-    struct real_data data;
+    char a[128];
 };
 
 int main(void)
@@ -39,11 +39,11 @@ int main(void)
     }
     struct ku_msg_lib receive_test;
 
-    int receive_result = ku_msgrcv(qid, &receive_test, size, type, KU_MSG_NOERROR);
+    int receive_result = ku_msgrcv(qid, &receive_test, size, type, 0);
     printf("Receive Result : %d\n", receive_result);
     if (receive_result != -1)
     {
-        printf("type: %ld, age: %d name:%s\n", receive_test.type, receive_test.data.age, receive_test.data.name);
+        printf("type: %ld, string:%s\n", receive_test.type, receive_test.a);
     }
 
     ku_msgclose(qid);
