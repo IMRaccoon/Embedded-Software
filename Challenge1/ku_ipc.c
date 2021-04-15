@@ -12,7 +12,7 @@
 
 #define DEV_NAME "ku_ipc"
 #define MAX_QUEUE_LENGTH 10
-#define MAX_CONCURRENT_PROCESS 3
+#define MAX_CONCURRENT_PROCESS 16
 
 #define IOCTL_START_NUM 0x00
 #define IOCTL_NUM1 IOCTL_START_NUM + 1
@@ -88,7 +88,6 @@ wait_queue_head_t ku_ipc_snd_wq[10];
 wait_queue_head_t ku_ipc_rcv_wq[10];
 
 static struct ku_msg_queue msg_queue_list[MAX_QUEUE_LENGTH];
-struct ku_msg_queue *cur_queue;
 
 MODULE_LICENSE("DUAL BSD/GPL");
 
@@ -107,7 +106,8 @@ int check_pid(struct ku_msg_queue *cur)
 
 int message_get_create(int qid)
 {
-    cur_queue = &msg_queue_list[qid];
+    struct ku_msg_queue *cur_queue = &msg_queue_list[qid];
+
     printk("ku_ipc: current pid %d\n", cur_queue->pid_index);
     if (cur_queue->pid_index == MAX_CONCURRENT_PROCESS)
     {
@@ -123,13 +123,9 @@ int message_get_create(int qid)
 
 int message_get_excl(int qid)
 {
-    cur_queue = &msg_queue_list[qid];
+    struct ku_msg_queue *cur_queue = &msg_queue_list[qid];
 
-    if (cur_queue->pid_index == MAX_CONCURRENT_PROCESS)
-    {
-        return -1;
-    }
-    else if (cur_queue->pid_index != 0)
+    if (cur_queue->pid_index != 0)
     {
         return -1;
     }
@@ -142,7 +138,7 @@ int message_close(int qid)
 {
     int flag = -1;
     int i;
-    cur_queue = &msg_queue_list[qid];
+    struct ku_msg_queue *cur_queue = &msg_queue_list[qid];
     for (i = 0; i < cur_queue->pid_index; i++)
     {
         if (cur_queue->using_pid[i] == current->pid)
@@ -169,7 +165,7 @@ int message_send(struct ku_msg_snd_data *arg, int is_wait)
 {
     int ret = 0;
     struct ku_msg_list *add_list;
-    cur_queue = &msg_queue_list[arg->qid];
+    struct ku_msg_queue *cur_queue = &msg_queue_list[arg->qid];
 
     if (cur_queue->queue_count > KUIPC_MAXMSG || (cur_queue->queue_vol + arg->data->size) >= KUIPC_MAXVOL)
     {
@@ -188,13 +184,10 @@ int message_send(struct ku_msg_snd_data *arg, int is_wait)
             return -1;
         }
     }
-    else
-    {
-        spin_lock(&ku_ipc_lock);
-        cur_queue->queue_vol += arg->data->size;
-        cur_queue->queue_count++;
-        spin_unlock(&ku_ipc_lock);
-    }
+    spin_lock(&ku_ipc_lock);
+    cur_queue->queue_vol += arg->data->size;
+    cur_queue->queue_count++;
+    spin_unlock(&ku_ipc_lock);
 
     add_list = (struct ku_msg_list *)kmalloc(sizeof(struct ku_msg_list), GFP_KERNEL);
     add_list->data = (struct ku_msg_snd_buf *)vmalloc(sizeof(struct ku_msg_snd_buf));
@@ -204,24 +197,26 @@ int message_send(struct ku_msg_snd_data *arg, int is_wait)
     ret = copy_from_user(add_list->data->str, arg->data->str, arg->data->size);
     if (ret != 0)
     {
+        spin_lock(&ku_ipc_lock);
+        cur_queue->queue_vol -= arg->data->size;
+        cur_queue->queue_count--;
+        spin_unlock(&ku_ipc_lock);
         vfree(add_list->data->str);
         vfree(add_list->data);
         kfree(add_list);
+        wake_up(&ku_ipc_snd_wq[arg->qid]);
         return -1;
     }
 
     list_add_tail(&add_list->list_head, &cur_queue->ku_queue.list_head);
 
-    spin_lock(&ku_ipc_lock);
-    cur_queue->queue_vol += arg->data->size;
-    cur_queue->queue_count++;
-    spin_unlock(&ku_ipc_lock);
     wake_up(&ku_ipc_rcv_wq[arg->qid]);
     return ret;
 }
 
-struct ku_msg_list *find_current_list(long type)
+struct ku_msg_list *find_current_list(struct ku_msg_queue *cur_queue, long type)
 {
+
     struct ku_msg_list *tmp;
     list_for_each_entry(tmp, &cur_queue->ku_queue.list_head, list_head)
     {
@@ -243,7 +238,7 @@ int message_receive(struct ku_msg_rcv_data *arg, int is_wait, int is_noerror)
     int ret = 0;
     int size;
     struct ku_msg_list *pos = NULL;
-    cur_queue = &msg_queue_list[arg->qid];
+    struct ku_msg_queue *cur_queue = &msg_queue_list[arg->qid];
 
     if (arg->data->type == 0)
     {
@@ -267,22 +262,18 @@ int message_receive(struct ku_msg_rcv_data *arg, int is_wait, int is_noerror)
     }
     else
     {
-        if (is_wait == TRUE)
+        if ((pos = find_current_list(cur_queue, arg->data->type)) != NULL && is_wait == TRUE)
         {
-            ret = wait_event_interruptible(ku_ipc_rcv_wq[arg->qid], (pos = find_current_list(arg->data->type)) != NULL);
+            ret = wait_event_interruptible(ku_ipc_rcv_wq[arg->qid], (pos = find_current_list(cur_queue, arg->data->type)) != NULL);
             if (ret < 0)
             {
                 message_close(arg->qid);
                 return -1;
             }
         }
-        else
+        else if (!pos)
         {
-            pos = find_current_list(arg->data->type);
-            if (!pos)
-            {
-                return -1;
-            }
+            return -1;
         }
     }
 
@@ -309,11 +300,11 @@ int message_receive(struct ku_msg_rcv_data *arg, int is_wait, int is_noerror)
     cur_queue->queue_count--;
     spin_unlock(&ku_ipc_lock);
 
-    wake_up(&ku_ipc_snd_wq[arg->qid]);
-
     list_del(&pos->list_head);
     vfree(pos->data);
     kfree(pos);
+    wake_up(&ku_ipc_snd_wq[arg->qid]);
+
     return size;
 }
 

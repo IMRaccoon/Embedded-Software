@@ -57,7 +57,7 @@ struct ku_msg_rcv_data
 
 int fd = 0;
 
-int checkQueueID(int msqid)
+int check_queue_id(int msqid)
 {
     if (msqid < 0 || msqid > 9)
     {
@@ -70,7 +70,7 @@ int checkQueueID(int msqid)
 int ku_msgget(int key, int msgflg)
 {
     int ret;
-    if (checkQueueID(key) || !((msgflg & KU_IPC_CREATE) || (msgflg & KU_IPC_EXCL)))
+    if (check_queue_id(key) || !((msgflg & KU_IPC_CREATE) || (msgflg & KU_IPC_EXCL)))
     {
         return -1;
     }
@@ -105,7 +105,7 @@ int ku_msgget(int key, int msgflg)
 
 int ku_msgclose(int msqid)
 {
-    if (checkQueueID(msqid) || !fd)
+    if (check_queue_id(msqid) || !fd)
     {
         return -1;
     }
@@ -116,7 +116,7 @@ int ku_msgclose(int msqid)
 // Message Send
 int ku_msgsnd(int msqid, void *msgp, int msgsz, int msgflg)
 {
-    if (checkQueueID(msqid) || !((msgflg & KU_IPC_NOWAIT) || msgflg == 0) || !fd)
+    if (check_queue_id(msqid) || !((msgflg & KU_IPC_NOWAIT) || msgflg == 0) || !fd)
     {
         return -1;
     }
@@ -153,7 +153,7 @@ int ku_msgsnd(int msqid, void *msgp, int msgsz, int msgflg)
 // Message Receive
 int ku_msgrcv(int msqid, void *msgp, int msgsz, long msgtyp, int msgflg)
 {
-    if (checkQueueID(msqid) || !((msgflg & KU_IPC_NOWAIT) || (msgflg & KU_MSG_NOERROR)) || !fd)
+    if (check_queue_id(msqid) || !((msgflg & KU_IPC_NOWAIT) || (msgflg & KU_MSG_NOERROR)) || !fd)
     {
         return -1;
     }
