@@ -11,4 +11,4 @@ clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) $(ARM) clean
 	rm $(obj-m:.o=_app)
 scp:
-	scp $(obj-m:.o=.ko) mknod.sh $(obj-m:.=_app) pi@10.10.10.12:~/
+	scp $(obj-m:.o=.ko) mknod.sh $(obj-m:.o=_app) pi@10.10.10.12:~/
