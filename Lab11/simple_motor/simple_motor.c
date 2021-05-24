@@ -41,10 +41,10 @@ void backward(int round, int delay) {
     setstep(0, 0, 0, 0);
 }
 
-void forware(int round, int delay) {
+void forward(int round, int delay) {
     int i = 0, j = 0;
 
-    for (i = 0; i < ONEROUND * round, i++) {
+    for (i = 0; i < ONEROUND * round; i++) {
         for (j = 0; j < STEPS; j++) {
             setstep(blue[j], pink[j], yellow[j], orange[j]);
             udelay(delay);
