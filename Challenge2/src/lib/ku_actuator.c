@@ -5,27 +5,62 @@
 #include <unistd.h>
 #include "ku_lib.h"
 
+int fd = 0;
 
-int main(int argc, char* argv[]) {
-    int dev, ret;
+// mode = 1 ACCEL, mode = 2 AUTO
+int ku_act_init(int distance, int mode) {
+    int ret;
+    struct ku_actuator_data send;
 
-
-    dev = open("/dev/ku_driver", O_RDWR);
-    ret = ioctl(dev, IOCTL_ACTUATOR_INIT, NULL);
-    if (ret == -1) {
-        printf("Actuator Init Error\n");
-        return 0;
+    if (!!fd) {
+        return -1;
+    }
+    if (mode != 1 && mode != 2) {
+        return -2;
+    }
+    if (distance < 5 || distance > 20) {
+        return -2;
     }
 
-    ret = ioctl(dev, IOCTL_ACTUATOR_START, NULL);
+    send.distance = distance;
+    send.mode = mode;
+
+    fd = open("/dev/ku_driver", O_RDWR);
+    ret = ioctl(fd, IOCTL_ACTUATOR_INIT, &send);
+
+    return ret;
+}
+
+int ku_act_start(int run_time) {
+    int ret;
+
+    if (!fd) {
+        return -1;
+    }
+
+    ret = ioctl(fd, IOCTL_ACTUATOR_START, NULL);
     if (ret == -1) {
+        return -1;
+    }
+
+    sleep(run_time);
+
+    ioctl(fd, IOCTL_ACTUATOR_END, NULL);
+    close(fd);
+    return 0;
+}
+
+int main(void) {
+    int ret = 0;
+
+    ret = ku_act_init(15, 2);
+    if (ret != 0) {
+        printf("Actuator Init Error %d\n", ret);
+        return 0;
+    }
+    ret = ku_act_start(10);
+    if (ret != 0) {
         printf("Actuator Start Error\n");
         return 0;
     }
-
-    sleep(10);
-
-    ioctl(dev, IOCTL_ACTUATOR_END, NULL);
-    close(dev);
-    return 0;
 }

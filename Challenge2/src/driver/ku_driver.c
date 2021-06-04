@@ -40,7 +40,7 @@
 #define IOCTL_ACTUATOR_START  _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM5, unsigned long *)
 #define IOCTL_ACTUATOR_END    _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM6, unsigned long *)
 
-#define SPEAKER_SOUND   1275
+
 #define MOTOR_STEPS     8
 #define MOTOR_ROUND     512
 #define MOTOR_SPEED     1000
@@ -68,6 +68,19 @@ rwlock_t distance_lock;
 rwlock_t switch_lock;
 unsigned long* distance;
 unsigned long* switch_count;
+unsigned long sound_distance = 5;
+unsigned long motor_distance = 10;
+static int sound_option = 0;
+static int motor_option = 1;
+
+struct ku_sensor_t {
+    int distance;
+    int sound_option;
+};
+struct ku_actuator_t {
+    int distance;
+    int mode;
+};
 
 static dev_t dev_num;
 static struct cdev* cd_cdev;
@@ -76,6 +89,7 @@ int blue[8] = { 1, 1, 0, 0, 0, 0, 0, 1 };
 int pink[8] = { 0, 1, 1, 1, 0, 0, 0, 0 };
 int yellow[8] = { 0, 0, 0, 1, 1, 1, 0, 0 };
 int orange[8] = { 0, 0, 0, 0, 0, 1, 1, 1 };
+int sound_list[] = { 1911, 1702, 1516, 1431, 1275, 1136, 1012 };
 
 
 static void sensor_timer_func(struct timer_list* t)
@@ -102,17 +116,17 @@ int speaker_play(void* data) {
     rcu_read_unlock();
 
     while (!kthread_should_stop()) {
-        if (*old != 0 && *old <= 20) {
+        if (*old != 0 && *old <= sound_distance * 4) {
             for (i = 0; i < 100; i++) {
                 gpio_set_value(SPEAKER, 1);
-                udelay(SPEAKER_SOUND);
+                udelay(sound_list[sound_option]);
                 gpio_set_value(SPEAKER, 0);
-                udelay(SPEAKER_SOUND);
+                udelay(sound_list[sound_option]);
             }
-            if (*old < 5) {
+            if (*old < sound_distance) {
                 mdelay(25);
             }
-            else if (*old < 10) {
+            else if (*old < sound_distance * 2) {
                 mdelay(50);
             }
             else {
@@ -136,7 +150,7 @@ void setstep(int p1, int p2, int p3, int p4) {
 
 int motor_move(void* data) {
     int j = 0;
-    unsigned long* old_distance, old_switch;
+    unsigned long old_distance, old_switch;
     unsigned long flags;
 
     while (!kthread_should_stop()) {
@@ -145,11 +159,11 @@ int motor_move(void* data) {
         read_unlock_irqrestore(&switch_lock, flags);
 
         if (old_switch % 2 == 1) {
-            rcu_read_lock();
-            old_distance = rcu_dereference(distance);
-            rcu_read_unlock();
+            read_lock_irqsave(&distance_lock, flags);
+            old_distance = *distance;
+            read_unlock_irqrestore(&distance_lock, flags);
 
-            if (*old_distance >= 10) {
+            if (old_distance >= motor_distance) {
                 for (j = 0; j < MOTOR_STEPS; j++) {
                     setstep(blue[j], pink[j], yellow[j], orange[j]);
                     udelay(MOTOR_SPEED);
@@ -196,15 +210,17 @@ static irqreturn_t ultra_isr(int irq, void* dev_id) {
 
 
 static irqreturn_t switch_isr(int irq, void* dev_id) {
-    unsigned long flags;
-
-    write_lock_irqsave(&switch_lock, flags);
-    *switch_count += 1;
-    write_unlock_irqrestore(&switch_lock, flags);
+    write_lock(&switch_lock);
+    if (motor_option == 1) {
+        *switch_count += 1;
+    }
+    else {
+        *switch_count = 1;
+    }
+    write_unlock(&switch_lock);
 
     return IRQ_HANDLED;
 }
-
 
 
 static long ku_driver_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
@@ -213,6 +229,9 @@ static long ku_driver_ioctl(struct file* file, unsigned int cmd, unsigned long a
 
     switch (cmd) {
     case IOCTL_SENSOR_INIT:
+        sound_distance = ((struct ku_sensor_t*)arg)->distance;
+        sound_option = ((struct ku_sensor_t*)arg)->sound_option;
+
         sound_kthread = kthread_create(speaker_play, NULL, "Sound Kthread");
         if (IS_ERR(sound_kthread)) {
             sound_kthread = NULL;
@@ -233,7 +252,6 @@ static long ku_driver_ioctl(struct file* file, unsigned int cmd, unsigned long a
             return -1;
         }
         disable_irq(ultra_irq_num);
-
         break;
 
     case IOCTL_SENSOR_START:
@@ -249,6 +267,7 @@ static long ku_driver_ioctl(struct file* file, unsigned int cmd, unsigned long a
         sensor_timer.timer.expires = jiffies + sensor_timer.delay_jiffies;
         add_timer(&sensor_timer.timer);
         break;
+
     case IOCTL_SENSOR_END:
         if (sound_kthread) {
             kthread_stop(sound_kthread);
@@ -261,10 +280,12 @@ static long ku_driver_ioctl(struct file* file, unsigned int cmd, unsigned long a
 
         gpio_free(ULTRA_TRIG);
         gpio_free(ULTRA_ECHO);
-
         break;
 
     case IOCTL_ACTUATOR_INIT:
+        motor_option = ((struct ku_actuator_t*)arg)->mode;
+        motor_distance = ((struct ku_actuator_t*)arg)->distance;
+
         motor_kthread = kthread_create(motor_move, NULL, "Motor Kthread");
         if (IS_ERR(motor_kthread)) {
             motor_kthread = NULL;
@@ -278,7 +299,6 @@ static long ku_driver_ioctl(struct file* file, unsigned int cmd, unsigned long a
         gpio_request_one(MOTOR_PIN4, GPIOF_OUT_INIT_LOW, "MOTOR_P4");
 
         switch_irq_num = gpio_to_irq(SWITCH);
-
         ret = request_irq(switch_irq_num, switch_isr, IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING, "SWITCH IRQ", NULL);
         if (ret) {
             printk("ku_driver: Unable to request IRQ: %d\n", ret);
@@ -286,8 +306,8 @@ static long ku_driver_ioctl(struct file* file, unsigned int cmd, unsigned long a
             return -1;
         }
         disable_irq(switch_irq_num);
-
         break;
+
     case IOCTL_ACTUATOR_START:
         write_lock_irqsave(&switch_lock, flags);
         *switch_count = 0;
@@ -295,12 +315,13 @@ static long ku_driver_ioctl(struct file* file, unsigned int cmd, unsigned long a
 
         wake_up_process(motor_kthread);
         enable_irq(switch_irq_num);
-
         break;
+
     case IOCTL_ACTUATOR_END:
         if (motor_kthread) {
             kthread_stop(motor_kthread);
         }
+
         free_irq(switch_irq_num, NULL);
         gpio_free(SWITCH);
 

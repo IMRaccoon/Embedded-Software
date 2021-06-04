@@ -13,3 +13,13 @@
 #define IOCTL_ACTUATOR_INIT   _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM4, unsigned long *)
 #define IOCTL_ACTUATOR_START  _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM5, unsigned long *)
 #define IOCTL_ACTUATOR_END    _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM6, unsigned long *)
+
+struct ku_sensor_data {
+    int distance;
+    int sound_option;
+};
+
+struct ku_actuator_data {
+    int distance;
+    int mode;
+};
