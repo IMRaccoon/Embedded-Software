@@ -124,13 +124,13 @@ int speaker_play(void* data) {
                 udelay(sound_list[sound_option]);
             }
             if (*old < sound_distance) {
-                mdelay(25);
+                mdelay(sound_distance * 5);
             }
             else if (*old < sound_distance * 2) {
-                mdelay(50);
+                mdelay(sound_distance * 10);
             }
             else {
-                mdelay(75);
+                mdelay(sound_distance * 15);
             }
         }
         else {

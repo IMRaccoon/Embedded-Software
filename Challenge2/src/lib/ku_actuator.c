@@ -3,16 +3,30 @@
 #include <sys/ioctl.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include "ku_lib.h"
 
-int fd = 0;
+#define IOCTL_START_NUM 0x80
+#define IOCTL_NUM4 IOCTL_START_NUM + 4
+#define IOCTL_NUM5 IOCTL_START_NUM + 5
+#define IOCTL_NUM6 IOCTL_START_NUM + 6
+
+#define SIMPLE_IOCTL_NUM 'z'
+#define IOCTL_ACTUATOR_INIT   _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM4, unsigned long *)
+#define IOCTL_ACTUATOR_START  _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM5, unsigned long *)
+#define IOCTL_ACTUATOR_END    _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM6, unsigned long *)
+
+struct ku_actuator_data {
+    int distance;
+    int mode;
+};
+
+int fd_act = 0;
 
 // mode = 1 ACCEL, mode = 2 AUTO
 int ku_act_init(int distance, int mode) {
     int ret;
     struct ku_actuator_data send;
 
-    if (!!fd) {
+    if (!!fd_act) {
         return -1;
     }
     if (mode != 1 && mode != 2) {
@@ -25,8 +39,8 @@ int ku_act_init(int distance, int mode) {
     send.distance = distance;
     send.mode = mode;
 
-    fd = open("/dev/ku_driver", O_RDWR);
-    ret = ioctl(fd, IOCTL_ACTUATOR_INIT, &send);
+    fd_act = open("/dev/ku_driver", O_RDWR);
+    ret = ioctl(fd_act, IOCTL_ACTUATOR_INIT, &send);
 
     return ret;
 }
@@ -34,33 +48,27 @@ int ku_act_init(int distance, int mode) {
 int ku_act_start(int run_time) {
     int ret;
 
-    if (!fd) {
+    if (!fd_act) {
         return -1;
     }
+    else if (run_time < 0 || run_time > 100) {
+        return -2;
+    }
 
-    ret = ioctl(fd, IOCTL_ACTUATOR_START, NULL);
+    ret = ioctl(fd_act, IOCTL_ACTUATOR_START, NULL);
     if (ret == -1) {
-        return -1;
+        return ret;
     }
 
     sleep(run_time);
 
-    ioctl(fd, IOCTL_ACTUATOR_END, NULL);
-    close(fd);
+    ioctl(fd_act, IOCTL_ACTUATOR_END, NULL);
+    close(fd_act);
     return 0;
 }
 
 int main(void) {
-    int ret = 0;
-
-    ret = ku_act_init(15, 2);
-    if (ret != 0) {
-        printf("Actuator Init Error %d\n", ret);
-        return 0;
-    }
-    ret = ku_act_start(10);
-    if (ret != 0) {
-        printf("Actuator Start Error\n");
-        return 0;
-    }
+    ku_act_init(10, 1);
+    ku_act_start(10);
+    return 0;
 }
