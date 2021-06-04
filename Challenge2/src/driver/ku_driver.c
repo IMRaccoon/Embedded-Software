@@ -9,7 +9,7 @@
 #include <linux/timer.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
-#include <linux/rculist.h>
+#include <linux/rwlock.h>
 #include <linux/kthread.h>
 #include <asm/delay.h>
 
@@ -64,10 +64,10 @@ struct sensor_timer_t
 };
 static struct sensor_timer_t sensor_timer;
 
-spinlock_t distance_lock;
-spinlock_t switch_lock;
-unsigned long __rcu* distance;
-unsigned long __rcu* switch_count;
+rwlock_t distance_lock;
+rwlock_t switch_lock;
+unsigned long* distance;
+unsigned long* switch_count;
 
 static dev_t dev_num;
 static struct cdev* cd_cdev;
@@ -136,15 +136,15 @@ void setstep(int p1, int p2, int p3, int p4) {
 
 int motor_move(void* data) {
     int j = 0;
-    unsigned long* old_distance, * old_switch;
+    unsigned long* old_distance, old_switch;
+    unsigned long flags;
 
     while (!kthread_should_stop()) {
-        rcu_read_lock();
-        old_switch = rcu_dereference(switch_count);
-        rcu_read_unlock();
+        read_lock_irqsave(&switch_lock, flags);
+        old_switch = *switch_count;
+        read_unlock_irqrestore(&switch_lock, flags);
 
-        if (*old_switch % 2 == 1) {
-
+        if (old_switch % 2 == 1) {
             rcu_read_lock();
             old_distance = rcu_dereference(distance);
             rcu_read_unlock();
@@ -167,6 +167,7 @@ int motor_move(void* data) {
 static irqreturn_t ultra_isr(int irq, void* dev_id) {
     ktime_t tmp_time;
     s64 time;
+    unsigned long flags;
 
     tmp_time = ktime_get();
     if (echo_valid_flag == 1) {
@@ -180,9 +181,9 @@ static irqreturn_t ultra_isr(int irq, void* dev_id) {
             echo_stop = tmp_time;
             time = ktime_to_us(ktime_sub(echo_stop, echo_start));
 
-            spin_lock(&distance_lock);
+            write_lock_irqsave(&distance_lock, flags);
             *distance = (int)time / 58;
-            spin_unlock(&distance_lock);
+            write_unlock_irqrestore(&distance_lock, flags);
 
             printk("ku_driver: Distacne %ld cm\n", *distance);
             echo_valid_flag = 3;
@@ -195,9 +196,11 @@ static irqreturn_t ultra_isr(int irq, void* dev_id) {
 
 
 static irqreturn_t switch_isr(int irq, void* dev_id) {
-    spin_lock(&switch_lock);
+    unsigned long flags;
+
+    write_lock_irqsave(&switch_lock, flags);
     *switch_count += 1;
-    spin_unlock(&switch_lock);
+    write_unlock_irqrestore(&switch_lock, flags);
 
     return IRQ_HANDLED;
 }
@@ -206,6 +209,7 @@ static irqreturn_t switch_isr(int irq, void* dev_id) {
 
 static long ku_driver_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
     int ret;
+    unsigned long flags;
 
     switch (cmd) {
     case IOCTL_SENSOR_INIT:
@@ -233,6 +237,10 @@ static long ku_driver_ioctl(struct file* file, unsigned int cmd, unsigned long a
         break;
 
     case IOCTL_SENSOR_START:
+        write_lock_irqsave(&distance_lock, flags);
+        *distance = 0;
+        write_unlock_irqrestore(&distance_lock, flags);
+
         enable_irq(ultra_irq_num);
         wake_up_process(sound_kthread);
 
@@ -281,9 +289,12 @@ static long ku_driver_ioctl(struct file* file, unsigned int cmd, unsigned long a
 
         break;
     case IOCTL_ACTUATOR_START:
+        write_lock_irqsave(&switch_lock, flags);
         *switch_count = 0;
-        enable_irq(switch_irq_num);
+        write_unlock_irqrestore(&switch_lock, flags);
+
         wake_up_process(motor_kthread);
+        enable_irq(switch_irq_num);
 
         break;
     case IOCTL_ACTUATOR_END:
@@ -324,8 +335,9 @@ static int __init ku_driver_init(void) {
     cdev_add(cd_cdev, dev_num, 1);
     printk("ku_driver: Init Module\n");
 
-    spin_lock_init(&distance_lock);
-    spin_lock_init(&switch_lock);
+    rwlock_init(&distance_lock);
+    rwlock_init(&switch_lock);
+
     distance = (unsigned long*)kmalloc(sizeof(unsigned long), GFP_KERNEL);
     *distance = 0;
 
@@ -336,14 +348,8 @@ static int __init ku_driver_init(void) {
 }
 
 static void __exit ku_driver_exit(void) {
-    unsigned long flags;
-
-    spin_lock_irqsave(&distance_lock, flags);
     kfree(distance);
-    spin_unlock_irqrestore(&distance_lock, flags);
-    spin_lock_irqsave(&switch_lock, flags);
     kfree(switch_count);
-    spin_unlock_irqrestore(&switch_lock, flags);
 
     cdev_del(cd_cdev);
     unregister_chrdev_region(dev_num, 1);
