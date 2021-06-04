@@ -7,11 +7,20 @@
 
 
 int main(int argc, char* argv[]) {
-    int dev;
-
+    int dev, ret;
 
     dev = open("/dev/ku_driver", O_RDWR);
-    ioctl(dev, IOCTL_SENSOR_START, NULL);
+    ret = ioctl(dev, IOCTL_SENSOR_INIT, NULL);
+    if (ret == -1) {
+        printf("Sensor Init Error\n");
+        return 0;
+    }
+
+    ret = ioctl(dev, IOCTL_SENSOR_START, NULL);
+    if (ret == -1) {
+        printf("Sensor Start Error\n");
+        return 0;
+    }
 
     sleep(10);
 

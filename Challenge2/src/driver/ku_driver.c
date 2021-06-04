@@ -29,12 +29,16 @@
 #define IOCTL_NUM2 IOCTL_START_NUM + 2
 #define IOCTL_NUM3 IOCTL_START_NUM + 3
 #define IOCTL_NUM4 IOCTL_START_NUM + 4
+#define IOCTL_NUM5 IOCTL_START_NUM + 5
+#define IOCTL_NUM6 IOCTL_START_NUM + 6
 
 #define SIMPLE_IOCTL_NUM 'z'
-#define IOCTL_SENSOR_START    _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM1, unsigned long *)
-#define IOCTL_SENSOR_END      _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM2, unsigned long *)
-#define IOCTL_ACTUATOR_START  _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM3, unsigned long *)
-#define IOCTL_ACTUATOR_END    _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM4, unsigned long *)
+#define IOCTL_SENSOR_INIT     _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM1, unsigned long *)
+#define IOCTL_SENSOR_START    _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM2, unsigned long *)
+#define IOCTL_SENSOR_END      _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM3, unsigned long *)
+#define IOCTL_ACTUATOR_INIT   _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM4, unsigned long *)
+#define IOCTL_ACTUATOR_START  _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM5, unsigned long *)
+#define IOCTL_ACTUATOR_END    _IOWR(SIMPLE_IOCTL_NUM, IOCTL_NUM6, unsigned long *)
 
 #define SPEAKER_SOUND   1275
 #define MOTOR_STEPS     8
@@ -194,17 +198,44 @@ static irqreturn_t switch_isr(int irq, void* dev_id) {
     spin_lock(&switch_lock);
     *switch_count += 1;
     spin_unlock(&switch_lock);
+
     return IRQ_HANDLED;
 }
 
 
 
 static long ku_driver_ioctl(struct file* file, unsigned int cmd, unsigned long arg) {
-
+    int ret;
 
     switch (cmd) {
+    case IOCTL_SENSOR_INIT:
+        sound_kthread = kthread_create(speaker_play, NULL, "Sound Kthread");
+        if (IS_ERR(sound_kthread)) {
+            sound_kthread = NULL;
+            printk("ku_driver : my kernel thread ERROR \n");
+            return -1;
+        }
+
+        gpio_request_one(SPEAKER, GPIOF_OUT_INIT_LOW, "SPEAKER");
+        gpio_request_one(ULTRA_TRIG, GPIOF_OUT_INIT_LOW, "ULTRA_TRIG");
+        gpio_request_one(ULTRA_ECHO, GPIOF_IN, "ULTRA_ECHO");
+
+        ultra_irq_num = gpio_to_irq(ULTRA_ECHO);
+
+        ret = request_irq(ultra_irq_num, ultra_isr, IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING, "ULTRA_ECHO", NULL);
+        if (ret) {
+            printk("ku_driver: Unable to request IRQ: %d\n", ret);
+            free_irq(ultra_irq_num, NULL);
+            return -1;
+        }
+        disable_irq(ultra_irq_num);
+
+        break;
+
     case IOCTL_SENSOR_START:
+        enable_irq(ultra_irq_num);
         wake_up_process(sound_kthread);
+
         sensor_timer.delay_jiffies = msecs_to_jiffies(500);
         timer_setup(&sensor_timer.timer, sensor_timer_func, 0);
         sensor_timer.timer.expires = jiffies + sensor_timer.delay_jiffies;
@@ -212,71 +243,70 @@ static long ku_driver_ioctl(struct file* file, unsigned int cmd, unsigned long a
         break;
     case IOCTL_SENSOR_END:
         if (sound_kthread) {
-            gpio_set_value(SPEAKER, 0);
-            free_irq(ultra_irq_num, NULL);
             kthread_stop(sound_kthread);
         }
         del_singleshot_timer_sync(&sensor_timer.timer);
+
+        free_irq(ultra_irq_num, NULL);
+        gpio_set_value(SPEAKER, 0);
+        gpio_free(SPEAKER);
+
+        gpio_free(ULTRA_TRIG);
+        gpio_free(ULTRA_ECHO);
+
+        break;
+
+    case IOCTL_ACTUATOR_INIT:
+        motor_kthread = kthread_create(motor_move, NULL, "Motor Kthread");
+        if (IS_ERR(motor_kthread)) {
+            motor_kthread = NULL;
+            printk("ku_driver : my kernel thread ERROR \n");
+        }
+
+        gpio_request_one(SWITCH, GPIOF_IN, "SWITCH");
+        gpio_request_one(MOTOR_PIN1, GPIOF_OUT_INIT_LOW, "MOTOR_P1");
+        gpio_request_one(MOTOR_PIN2, GPIOF_OUT_INIT_LOW, "MOTOR_P2");
+        gpio_request_one(MOTOR_PIN3, GPIOF_OUT_INIT_LOW, "MOTOR_P3");
+        gpio_request_one(MOTOR_PIN4, GPIOF_OUT_INIT_LOW, "MOTOR_P4");
+
+        switch_irq_num = gpio_to_irq(SWITCH);
+
+        ret = request_irq(switch_irq_num, switch_isr, IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING, "SWITCH IRQ", NULL);
+        if (ret) {
+            printk("ku_driver: Unable to request IRQ: %d\n", ret);
+            free_irq(switch_irq_num, NULL);
+            return -1;
+        }
+        disable_irq(switch_irq_num);
+
         break;
     case IOCTL_ACTUATOR_START:
-
+        *switch_count = 0;
+        enable_irq(switch_irq_num);
         wake_up_process(motor_kthread);
+
         break;
     case IOCTL_ACTUATOR_END:
         if (motor_kthread) {
             kthread_stop(motor_kthread);
         }
         free_irq(switch_irq_num, NULL);
+        gpio_free(SWITCH);
+
+        gpio_free(MOTOR_PIN1);
+        gpio_free(MOTOR_PIN2);
+        gpio_free(MOTOR_PIN3);
+        gpio_free(MOTOR_PIN4);
         break;
     }
     return 0;
 }
 
 static int ku_driver_open(struct inode* inode, struct file* file) {
-    int ret;
-    gpio_request_one(SPEAKER, GPIOF_OUT_INIT_LOW, "SPEAKER");
-    gpio_request_one(ULTRA_TRIG, GPIOF_OUT_INIT_LOW, "ULTRA_TRIG");
-    gpio_request_one(ULTRA_ECHO, GPIOF_IN, "ULTRA_ECHO");
-    gpio_request_one(SWITCH, GPIOF_IN, "SWITCH");
-
-    gpio_request_one(MOTOR_PIN1, GPIOF_OUT_INIT_LOW, "MOTOR_P1");
-    gpio_request_one(MOTOR_PIN2, GPIOF_OUT_INIT_LOW, "MOTOR_P2");
-    gpio_request_one(MOTOR_PIN3, GPIOF_OUT_INIT_LOW, "MOTOR_P3");
-    gpio_request_one(MOTOR_PIN4, GPIOF_OUT_INIT_LOW, "MOTOR_P4");
-
-    ultra_irq_num = gpio_to_irq(ULTRA_ECHO);
-    switch_irq_num = gpio_to_irq(SWITCH);
-    ret = request_irq(ultra_irq_num, ultra_isr, IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING, "ULTRA_ECHO", NULL);
-    if (ret) {
-        printk("ku_driver: Unable to request IRQ: %d\n", ret);
-        free_irq(ultra_irq_num, NULL);
-    }
-    else {
-        disable_irq(ultra_irq_num);
-    }
-
-    ret = request_irq(switch_irq_num, switch_isr, IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING, "SWITCH IRQ", NULL);
-    if (ret) {
-        printk("ku_driver: Unable to request IRQ: %d\n", ret);
-        free_irq(switch_irq_num, NULL);
-    }
-    else {
-        disable_irq(switch_irq_num);
-    }
     return 0;
 }
 
 static int ku_driver_release(struct inode* inode, struct file* file) {
-    gpio_set_value(SPEAKER, 0);
-    gpio_free(SPEAKER);
-    gpio_free(ULTRA_TRIG);
-    gpio_free(ULTRA_ECHO);
-    gpio_free(SWITCH);
-
-    gpio_free(MOTOR_PIN1);
-    gpio_free(MOTOR_PIN2);
-    gpio_free(MOTOR_PIN3);
-    gpio_free(MOTOR_PIN4);
     return 0;
 }
 
@@ -301,18 +331,6 @@ static int __init ku_driver_init(void) {
 
     switch_count = (unsigned long*)kmalloc(sizeof(unsigned long), GFP_KERNEL);
     *switch_count = 0;
-
-    sound_kthread = kthread_create(speaker_play, NULL, "Sound Kthread");
-    if (IS_ERR(sound_kthread)) {
-        sound_kthread = NULL;
-        printk("ku_driver : my kernel thread ERROR \n");
-    }
-
-    motor_kthread = kthread_create(motor_move, NULL, "Motor Kthread");
-    if (IS_ERR(motor_kthread)) {
-        motor_kthread = NULL;
-        printk("ku_driver : my kernel thread ERROR \n");
-    }
 
     return 0;
 }
